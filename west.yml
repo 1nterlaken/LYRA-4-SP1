@@ -1,0 +1,28 @@
+# lyra4-sp1 west manifest.
+#
+# Zephyr is PINNED. sp1-tape-looper's author established v4.3.1 + SDK 0.17.4
+# as a working combination on this board; unpinning is how you inherit board
+# and Kconfig breakage that has nothing to do with your own code.
+#
+# The module allowlist is VALIDATED, not guessed: `cmsis_6` is required in
+# addition to `cmsis` on the 4.x line, and a `west update` with exactly these
+# three reached a real build. Do not widen it to `import: true` (~2 GB more and
+# a full re-update) and do not drop `cmsis_6` -- the Kconfig fix in
+# zephyr-patches/ depends on modules/cmsis_6 being present.
+manifest:
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v4.3.1
+      import:
+        name-allowlist:
+          - cmsis
+          - cmsis_6
+          - hal_nordic
+
+  self:
+    path: lyra4-sp1

@@ -1,0 +1,24 @@
+# west workspace siblings (present only if the workspace root is this repo's parent)
+build/
+logs/
+.west/
+zephyr/
+modules/
+bootloader/
+
+*.bin
+*.hex
+*.elf
+*.map
+*.o
+*.d
+__pycache__/
+
+# editor settings (machine-specific paths)
+.vscode/
+.idea/
+
+# design sources and editor lock files (the manual ships as its exported PDF)
+*.af
+*~lock~
+.~lock.*#

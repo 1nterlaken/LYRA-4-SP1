@@ -1,0 +1,185 @@
+/*
+ * Teenage Engineering SP-1 board definition — LYRA-4.
+ *
+ * Derived from chattock/sp1-tape-looper (MIT), which was itself reconstructed
+ * from ericlewis/sp1-midi's stem_player board (MIT) and timknapen/SP-1-dev's
+ * stemplayer_pins.h + wiki. See NOTICE at the repo root.
+ *
+ * Differences from the sp1-tape-looper board, on purpose:
+ *  - No UAC2 / USB audio nodes. lyra4-sp1 synthesises its own audio; it never
+ *    takes audio in over USB.
+ *  - M1c adds cdc_acm_uart0 and zephyr,console. M0 deliberately shipped with NO
+ *    USB at all so the first flash had the fewest ways to fail; that has served
+ *    its purpose now that M0/M1a/M1b are all verified on hardware.
+ *  - PWM2 + PWM3 drive the two LED rows (M1a). sp1-tape-looper deliberately
+ *    drives them as raw GPIO with a SOFTWARE PWM, and had to promote its LED
+ *    timer to a zero-latency IRQ to stop visible flicker at low duty. We do not
+ *    inherit that: hardware PWM is smoother, costs no CPU, and removes an
+ *    interrupt that would otherwise compete with the audio deadline.
+ *
+ * Kept from sp1-tape-looper unchanged, because they are known-good:
+ *  - I2S pins are SLAVE direction: the 3.072 MHz oscillator drives SCK and the
+ *    CS42L42 masters LRCK, exactly as TE designed the board. This gives an
+ *    exact 48000 Hz frame clock (3.072 MHz / 64) for free.
+ *  - ADC channels 0-1 (the button ladders) use gain 1/6 + the 0.6 V internal
+ *    reference. WARNING: sp1-midi uses gain 1/4 + VDD/4, and the published
+ *    millivolt thresholds differ between the two. Never mix a threshold table
+ *    from one configuration with the other.
+ *  - uart0 stays disabled: P1.01-P1.04 belong to the CYBT Bluetooth module,
+ *    and driving TX risks contention with it.
+ */
+
+/dts-v1/;
+#include <nordic/nrf52840_qiaa.dtsi>
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
+#include "stem_player-pinctrl.dtsi"
+
+/ {
+	model = "Stem Player SP-1 (LYRA-4)";
+	compatible = "teenageengineering,stem-player";
+
+	/* P0.09/P0.10 are NFC pins by default; the SP-1 uses them as GPIO
+	 * (P0.09 = TAS2505 reset, P0.10 = CYBT module reset). */
+	nfct-pins-as-gpios;
+
+	zephyr_user: zephyr,user {
+	};
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		/* Console over USB. NOTHING may block waiting for a host -- the
+		 * device has to boot unplugged, which is most of the time. */
+		zephyr,console = &cdc_acm_uart0;
+	};
+
+	aliases {
+		watchdog0 = &wdt0;
+	};
+};
+
+&adc {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	/* Ladder 1: Track 1-4 + PLAY (P0.02 / AIN0). 8 thresholds per button,
+	 * so multi-press combinations are decodable. */
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 20)>;
+		zephyr,input-positive = <NRF_SAADC_AIN0>;
+		zephyr,resolution = <12>;
+	};
+
+	/* Ladder 2: Vol+ / Vol- and the FWD/RWD rocker (P0.03 / AIN1).
+	 * Single-press only -- no combinations are decodable on this ladder. */
+	channel@1 {
+		reg = <1>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 20)>;
+		zephyr,input-positive = <NRF_SAADC_AIN1>;
+		zephyr,resolution = <12>;
+	};
+
+	/* Channels 2-6 (the 4 faders + battery) arrive in firmware/app.overlay. */
+};
+
+&i2c0 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-1 = <&i2c0_sleep>;
+	pinctrl-names = "default", "sleep";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	/* CS42L42 (0x48) and TAS2505 (0x18) are addressed directly from C;
+	 * no DT child nodes needed. Driver stays off until M2. */
+};
+
+&i2s0 {
+	status = "okay";
+	pinctrl-0 = <&i2s0_default>;
+	pinctrl-1 = <&i2s0_sleep>;
+	pinctrl-names = "default", "sleep";
+	/* Driver stays off until M2. */
+};
+
+zephyr_udc0: &usbd {
+	compatible = "nordic,nrf-usbd";
+	status = "okay";
+
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/* CYBT-353027 Bluetooth module UART. Out of scope -- kept off so nothing
+ * drives the module's lines. */
+&uart0 {
+	status = "disabled";
+};
+
+/* ---- LED rows on hardware PWM (M1a) ----
+ * PWM2 = the four track LEDs (the "model row", above buttons T1-T4)
+ * PWM3 = the four play LEDs (the "side row", used as the VU meter)
+ * Period is set from C; see sp1_led.c. */
+&pwm2 {
+	status = "okay";
+	/* Deferred so pinctrl does not claim the LED pins pre-main. Until
+	 * device_init() runs, the peripheral drives nothing; with `nordic,invert`
+	 * on these channels its idle level LIGHTS the LEDs, which flashed every LED
+	 * for a few ms on every boot -- including a tap-wake that then went straight
+	 * back to sleep. sp1_led_init() calls device_init(); see sp1_led.h. */
+	zephyr,deferred-init;
+	pinctrl-0 = <&pwm2_default>;
+	pinctrl-1 = <&pwm2_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+&pwm3 {
+	status = "okay";
+	zephyr,deferred-init;      /* see pwm2 above */
+	pinctrl-0 = <&pwm3_default>;
+	pinctrl-1 = <&pwm3_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+&gpio0 { status = "okay"; };
+&gpio1 { status = "okay"; };
+&gpiote { status = "okay"; };
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* TE bootloader. NEVER WRITE HERE. The Track1+Track4 recovery
+		 * entry lives in this region; as long as it is intact, a hung or
+		 * broken app is always recoverable. */
+		boot_partition: partition@0 {
+			label = "bootloader";
+			reg = <0x00000000 0x00020000>;
+		};
+
+		slot0_partition: partition@20000 {
+			label = "image-0";
+			reg = <0x00020000 0x000df000>;
+		};
+
+		/* Declared so the layout matches the known-good one, but lyra4-sp1
+		 * does NOT write it. The SP-1 knowledgebase reports page 0xFF as
+		 * reserved by the bootloader (presumed MBR settings) while
+		 * sp1-tape-looper uses it as storage. That conflict is unresolved;
+		 * until it is, we keep no persistent settings here. */
+		storage_partition: partition@ff000 {
+			label = "storage";
+			reg = <0x000ff000 0x00001000>;
+		};
+	};
+};

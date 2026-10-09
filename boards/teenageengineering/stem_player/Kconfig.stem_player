@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+config BOARD_STEM_PLAYER
+	select SOC_NRF52840_QIAA
+	# NOTE (inherited from chattock/sp1-tape-looper, MIT): mainline Zephyr's
+	# nRF52 SoC tree provides no system-PM glue (no HAS_PM, no pm_state_set),
+	# so CONFIG_PM=y cannot take effect here. Do NOT 'select HAS_PM' to silence
+	# the warning -- that links a PM core with no SoC backend (undefined
+	# reference to pm_state_set). Power-off is unaffected: the app drives the
+	# SYSTEM_OFF registers directly.

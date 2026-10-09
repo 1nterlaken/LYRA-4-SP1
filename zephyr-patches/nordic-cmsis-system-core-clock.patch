@@ -1,0 +1,22 @@
+diff --git a/soc/nordic/Kconfig b/soc/nordic/Kconfig
+index 46efc8c2c74..eca78e8afa0 100644
+--- a/soc/nordic/Kconfig
++++ b/soc/nordic/Kconfig
+@@ -50,6 +50,17 @@ config SOC_FAMILY_NORDIC_NRF
+ 
+ if SOC_FAMILY_NORDIC_NRF
+ 
++# lyra4-sp1 local patch: SOC_FAMILY_NORDIC_NRF above unconditionally selects
++# CMSIS_CORE_HAS_SYSTEM_CORE_CLOCK, but modules/cmsis_6/Kconfig only allows
++# that symbol for SOC_SERIES_IMXRT6XX, making it unreachable for any Nordic
++# build and fatal on a fresh Kconfig pass. Nordic's MDK headers do provide
++# SystemCoreClock, so mirror the imxrt6xx default-y block here. See
++# zephyr-patches/nordic-cmsis-system-core-clock.patch in the lyra4-sp1 repo;
++# reapply after `west update` touches this file.
++config CMSIS_CORE_HAS_SYSTEM_CORE_CLOCK
++	bool
++	default y
++
+ rsource "common/Kconfig.peripherals"
+ rsource "*/Kconfig"
+ 

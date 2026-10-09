@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+CONFIG_GPIO=y
+CONFIG_PINCTRL=y
+# MPU on: needed by CONFIG_HW_STACK_PROTECTION / CONFIG_STACK_SENTINEL.
+CONFIG_ARM_MPU=y
+# CRITICAL: the TE bootloader places the app image at 0x20000 (slot0_partition).
+# Without this the vector table lands at 0x0 and the device will not boot.
+CONFIG_USE_DT_CODE_PARTITION=y
+# No 32.768 kHz crystal is driven for the app; synthesize LFCLK. This matches
+# what the bootloader leaves behind -- do not change it.
+CONFIG_CLOCK_CONTROL_NRF_K32SRC_SYNTH=y
