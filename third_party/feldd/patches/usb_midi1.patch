@@ -1,0 +1,118 @@
+--- a/usb_midi1.c
++++ b/usb_midi1.c
+@@ -41,13 +41,16 @@
+ #include <zephyr/logging/log.h>
+ LOG_MODULE_REGISTER(usb_midi1, LOG_LEVEL_INF);
+ 
+-/* MIDI clock feature: host->device real-time bytes (clock/transport) are no longer
+- * discarded - they are parsed out of the USB-MIDI packets and handed to the clock
+- * router (forward to TRS + external-master detection for the GEN/THRU selector). */
+-#include "usb_rt_parse.h"
+-#include "clock_router.h"
+-#include "librarian.h"   /* librarian_midi_thru(): global MIDI-thru switch */
+-#include "midi_out.h"    /* midi_out_thru(): forward voice to the TRS jack */
++/* lyra4-sp1 (M5a): received MIDI goes to the LYRA-4 MIDI layer (firmware/src/sp1_usbd.c),
++ * which validates each packet with usb_rt_parse.c and queues it for the audio thread.
++ * feldd's clock router, MIDI-thru and librarian are not part of LYRA-4, and the port
++ * state is reported so LYRA-4 knows when MIDI is plugged in or unplugged. */
++#include "sp1_midi_usb.h"
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++/* lyra4-sp1 (#32): the host->device endpoint is served from the USB interrupt
++ * (zephyr-patches/udc_nrf-fast-paths.patch): no net_buf and no thread per packet. */
++#include <zephyr/drivers/usb/udc_nrf_fast.h>
++#endif
+ 
+ /* USB Device Class Definition for MIDI Devices 1.0 constants. */
+ /* B.4.1 MS Class-Specific Interface Descriptor Subtypes */
+@@ -440,6 +443,16 @@
+ 	}
+ }
+ 
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++/* lyra4-sp1 (#32): one received packet, in the USB interrupt. Same parse as the
++ * request() path below; it must stay short and never block. */
++static void usb_midi1_out_fast(const uint8_t *d, uint16_t len, void *user_data)
++{
++	ARG_UNUSED(user_data);
++	sp1_midi_usb_rx(d, len);
++}
++#endif
++
+ /* ---- usbd_class_api callbacks ---- */
+ 
+ /* Transfer completion. IN (device->host): free + kick another Tx if the ring
+@@ -465,25 +478,9 @@
+ 		 * default - feldd is a control surface, not a sink). SysEx is always
+ 		 * dropped. Then re-arm the read (unless aborted on disable/suspend). */
+ 		if (err != -ECONNABORTED) {
+-			const uint8_t *d = buf->data;
+ 			/* Bound the scan to the pooled buffer (MPS 64 -> <=16 events), so a
+ 			 * future net_buf resize can never widen the parse past the payload. */
+-			size_t n = MIN(buf->len, buf->size);
+-			/* Read the global thru switch once for this buffer (a single-byte
+-			 * RAM copy; the config thread's writer is atomic on Cortex-M). */
+-			bool thru = librarian_midi_thru();
+-			for (size_t i = 0; i + 4 <= n; i += 4) {
+-				uint8_t rt = usb_midi_extract_rt(&d[i]);
+-				if (rt) {
+-					clock_router_ext_rt(rt);
+-				} else if (thru) {
+-					uint8_t vb[3];
+-					uint8_t vlen = usb_midi_extract_voice(&d[i], vb);
+-					if (vlen) {
+-						midi_out_thru(vb, vlen);
+-					}
+-				}
+-			}
++			sp1_midi_usb_rx(buf->data, MIN(buf->len, buf->size));
+ 		}
+ 		(void)usbd_ep_buf_free(uds_ctx, buf);
+ 		if (err != -ECONNABORTED && data->enabled) {
+@@ -504,10 +501,20 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = true;
++	sp1_midi_usb_port(true);
+ 	LOG_DBG("USB-MIDI 1.0 enabled");
+ 
+ 	/* Open the host->device read sink so the host has somewhere to send. */
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	/* lyra4-sp1 (#32): from the interrupt, if the driver takes the endpoint; the
++	 * stock net_buf read otherwise. */
++	if (udc_nrf_out_fast_start(usb_midi1_cfg.desc->out_ep_fs.bEndpointAddress,
++				   usb_midi1_out_fast, NULL) != 0) {
++		usb_midi1_out_prep(data);
++	}
++#else
+ 	usb_midi1_out_prep(data);
++#endif
+ 
+ 	/* Flush anything that queued before the host enabled the interface. */
+ 	if (!ring_buf_is_empty(&data->tx_queue)) {
+@@ -520,6 +527,10 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = false;
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	udc_nrf_out_fast_stop();
++#endif
++	sp1_midi_usb_port(false);
+ 	LOG_DBG("USB-MIDI 1.0 disabled");
+ }
+ 
+@@ -528,6 +539,7 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = false;
++	sp1_midi_usb_port(false);
+ 	LOG_DBG("USB-MIDI 1.0 suspended");
+ }
+ 
+@@ -536,6 +548,7 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = true;
++	sp1_midi_usb_port(true);
+ 	LOG_DBG("USB-MIDI 1.0 resumed");
+ }
+ 
