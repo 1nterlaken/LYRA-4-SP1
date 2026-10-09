@@ -1,0 +1,15 @@
+LYRA-4 engine (C++), derived from the signal graph of LIRA-4 for MobMuPlat / LIRA-8.
+
+LIRA-8 / LIRA-4 Pure Data patches
+Copyright (c) Miguel Moreno (Mike Moreno DSP). BSD 3-clause ("Standard Improved BSD License").
+Source: https://github.com/MikeMorenoDSP/LIRA-8  (commit 6a6b6cbc3359a20d7741c9270c7690ab6b21c92a)
+No patch text or constants were copied verbatim; the C++ here re-implements the traced graph. The
+constants that define the sound (tuning ranges, ramp times, compressor/expander settings, drive
+curve, latencies) are values read from the patch and are credited to it.
+
+Algorithm references named in the patch comments (not reviewed for licence here): musicdsp.org
+entries 97, 237 and 238; a PolyBLEP blog post; cfloisand/pd-externals; heavylib (Enzien Audio, MIT)
+for the inlined comparison/multiplex helpers.
+
+Redistribution in binary form must reproduce the BSD notice in the accompanying documentation, and
+the author's name may not be used to endorse derived products without permission.
