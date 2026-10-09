@@ -1,0 +1,207 @@
+# lyra4-sp1 application Kconfig.
+
+menu "LYRA-4"
+
+# ---- the USB device's identity (M5a, src/sp1_usbd.c) ----
+# Through M4e the console came up through Zephyr's sample helper, which hard-codes Zephyr's
+# shared test vendor ID. These are ours. ⚠️ Change the PID whenever the set of USB functions
+# changes (M5a added MIDI): hosts cache descriptors by VID/PID.
+config SP1_USB_VID
+	hex "USB vendor ID"
+	default 0x2fe3
+	help
+	  0x2fe3 is Zephyr's test vendor ID, kept only until pid.codes (VID 0x1209,
+	  free product IDs for open-source projects) grants LYRA-4 a PID of its own.
+
+config SP1_USB_PID
+	hex "USB product ID"
+	default 0x5213
+	help
+	  0x5211 through M4e (console only); 0x5212 from M5a (console + MIDI);
+	  0x5213 from M5c (console + MIDI + audio out). Interim: pid.codes
+	  1209:4440 is requested (pidcodes/pidcodes.github.com#1301).
+
+config SP1_USB_MANUFACTURER
+	string "USB manufacturer string"
+	default "Dreambored"
+
+config SP1_USB_PRODUCT
+	string "USB product string (the name hosts show for the device and its MIDI port)"
+	default "LYRA-4"
+	help
+	  "lyra4-sp1" through v0.6.x; "LYRA-4" from M5c (Adara). DAWs remember MIDI routings by
+	  port name, so a change means re-selecting the port once on each host.
+
+config SP1_USB_MAX_POWER
+	int "bMaxPower, in units of 2 mA"
+	default 50
+	range 0 250
+	help
+	  iOS rejects accessories claiming more than 100 mA over the camera adapter, and
+	  the SP-1 runs from its own battery.
+
+config SP1_AUDIO_BLOCK_FRAMES
+	int "Audio block, in frames at 48 kHz"
+	default 96
+	range 48 240
+	help
+	  How much audio is rendered at a time: 96 = 2 ms (the default since #32; with 1 queued,
+	  8 ms of latency), 240 = 5 ms (25 ms with 2 queued; v0.5.0). Must be a multiple of 48 (1 ms): whole
+	  Plaits blocks, and whole 1 kHz groups for Marbles' X/Y. Latency is
+	  (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) blocks -- see prj.conf.
+
+config SP1_PLAITS_BLOCK
+	int "Plaits block, in samples (12 or 24)"
+	default 24
+	range 12 24
+	depends on SP1_PLAITS
+	help
+	  How many samples Plaits renders per call (upstream: 12). 24 (#32) halves Plaits'
+	  per-call work and our per-Plaits-block glue; modulation, TRIG and MIDI placement move
+	  to a 0.5 ms grid and Marbles runs at 2 kHz instead of 4. Every time constant of ours
+	  that counted blocks (the TRIG pulse, Plaits' trigger delay, Additive's spectrum
+	  update, Chords' crossfade, MIDI's clock and smoothing, Marbles' rate) is expressed in
+	  time, so it is the same at either size. Only 12 and 24 are valid.
+
+config SP1_TRIGGER_DELAY_SAMPLES
+	int "Plaits' TRIG delay, in samples (whole Plaits blocks)"
+	default 24
+	range 0 96
+	depends on SP1_PLAITS
+	help
+	  Upstream Plaits delays its TRIG input by 1 ms (48 samples) so a eurorack pitch CV
+	  that lags its gate is still caught. In LYRA-4 every TRIG arrives with its pitch, but
+	  Plaits averages its V/Oct input over two blocks, so with no delay a Marbles X -> V/Oct
+	  strike catches the pitch half-way (host: Modal's attack -1 dB from the settled one,
+	  against -18 dB at 0.5 ms; MIDI notes and the quantizer latch are unaffected even at 0).
+	  24 = 0.5 ms keeps every attack as it was (#32). Must be whole Plaits blocks.
+
+config SP1_PROFILE_ICACHE
+	bool "Diagnostics: flash-cache misses per audio section"
+	default n
+	depends on SP1_PLAITS
+	help
+	  Adds a BLK log line with the flash cache's misses per millisecond of audio, by
+	  section (#32): whether 2 ms blocks cost more because of per-call work or because the
+	  instruction cache refills each time the code switches between Marbles, MIDI and the
+	  engine. Reads the NVMC counter a few times per Plaits block (~0.05 % CPU). Off in
+	  release builds.
+
+config SP1_LOGBUF_KB
+	int "Stored log, in KB of RAM"
+	default 96
+	range 4 160
+	help
+	  Everything printk writes is also kept in RAM, newest last, and played back when a
+	  terminal next opens the console -- so a session with the USB port in another host's
+	  hands (the OP-XY) is not lost (src/sp1_logbuf.h). 96 KB is ~14 minutes of a session.
+
+config SP1_USB_THREADS_BELOW_AUDIO
+	bool "Run Zephyr's USB threads below the audio thread (#32)"
+	default y
+	depends on UDC_NRF_OUT_FAST
+	help
+	  Moves the udc_nrfx and usbd threads from K_PRIO_COOP(8), above audio, to main's
+	  priority, so enumeration, the console and control requests cannot push an audio
+	  block over (src/sp1_usbd.c). Only with the MIDI fast path: MIDI must not wait on
+	  these threads, or its timestamps would be up to a block late.
+
+config SP1_MIDI
+	bool "USB-MIDI in: notes into Plaits, CCs onto both modules (M5a)"
+	default y
+	depends on SP1_PLAITS
+	help
+	  A USB-MIDI 1.0 port (feldd's class, third_party/feldd) next to the console.
+	  Notes play Plaits, CCs offset parameters on both modules, all configured by
+	  config/midi.ini at build time. Costs nothing until a host sends something.
+	  n: no MIDI function on the USB device at all.
+
+config SP1_USB_AUDIO
+	bool "USB audio out: the SP-1's output to the host, USB Audio Class 1.0 (M5c)"
+	default y
+	depends on SP1_PLAITS && UDC_NRF_ISO_IN_FAST
+	help
+	  The output the codecs get, after VOL, sent to the host as a 48 kHz 16-bit
+	  stereo input (src/sp1_uac.c). Output only: nothing is received from the host.
+	  Packets go out from the USB interrupt through the ISO IN fast path
+	  (zephyr-patches/udc_nrf-fast-paths.patch), which is required. Costs nothing
+	  until a host opens the stream.
+
+config SP1_PLAITS
+	bool "Plaits voice as the audio source (M3)"
+	default y
+	select CPP
+	help
+	  y: PLAY triggers the Plaits voice (2-op FM), faders are FREQUENCY /
+	  TIMBRE / MORPH / HARMONICS, VOL+/- set the output level.
+	  n: the M2 440 Hz test tone instead, with its PLAY / VOL controls, and
+	  none of the Plaits code is compiled or linked.
+
+	  This is the FALLBACK SWITCH. If the voice faults or overruns on hardware,
+	  set CONFIG_SP1_PLAITS=n in prj.conf and rebuild: everything else in the
+	  build (headphone mute, LEDs, power) stays exactly as it was.
+
+config SP1_LYRA
+	bool "LYRA-4 four-voice synth as the audio source (experimental)"
+	default n
+	depends on !SP1_PLAITS
+	select CPP
+	help
+	  y: the LYRA-4 engine (third_party/lyra4) replaces the Plaits voice. Build with
+	  lyra.conf (CONFIG_SP1_PLAITS=n, MIDI and USB audio off). Pages, arming and LEDs:
+	  src/lyra_ctl.c. Power, charge LEDs, headphone and bootloader code is LYRA-4'.
+
+config SP1_STRING_VOICES
+	int "String engine: number of strings (Plaits kNumStrings)"
+	range 1 3
+	default 2
+	depends on SP1_PLAITS
+	help
+	  How many strings Plaits' String engine rings at once. Upstream is 3.
+	  Each TRIG plucks the next string round-robin, so this is how many
+	  notes can overlap before the oldest one is re-plucked.
+
+	  2 (default, M3e): every string costs the same, so 2 saves a third of
+	  the engine -- 598.6 -> 427.3 instructions/sample in tools/plaits-bench,
+	  about 90 % -> 65 % of the audio budget on the SP-1. At 3, String
+	  measured 90 % average and 98.5 % peak: it played, with no headroom.
+
+	  Applied at build time to a generated copy of string_engine.h; the
+	  vendored file is not modified (see "Plaits overrides" in
+	  firmware/CMakeLists.txt). Set it to 3 in prj.conf to A/B the original.
+
+config SP1_PARTICLES
+	int "Particle engine: number of particles (Plaits kNumParticles)"
+	range 1 6
+	default 2
+	depends on SP1_PLAITS
+	help
+	  How many resonant "particles" Plaits' Particle engine runs. Upstream
+	  is 6. Plaits divides the density by this count, so the rate of events
+	  is the same; fewer means fewer pings ringing at different pitches at
+	  once.
+
+	  2 (default, M3h): at 3 (M3f) the SP-1 peaked at 83-100 %, all of it
+	  below MORPH centre where the diffuser runs (Adara). Each particle is
+	  ~43 instructions/sample. At 6 (upstream) it measured 86 % average /
+	  97 % peak. The diffuser is skipped above MORPH centre in any case.
+
+config SP1_MODAL_MODES
+	int "Modal engine: number of resonator modes (Plaits kMaxNumModes)"
+	range 4 24
+	default 12
+	depends on SP1_PLAITS
+	help
+	  Partials of Plaits' modal resonator. Upstream is 24. Must be a
+	  multiple of 4 (the resonator renders modes in batches of 4; the build
+	  checks). Fewer modes drop the highest partials: the body of a bell
+	  stays, its shimmer goes.
+
+	  12 (default, M3g): 8 measured 49 % average / 54 % peak on the SP-1
+	  and sounded band-limited (Adara); each batch of 4 modes costs ~100
+	  instructions/sample, ~16 %, so 12 is expected near 65 % / 70 %.
+	  8 is the fallback. 16 would be ~80 % average -- over the target.
+
+endmenu
+
+source "Kconfig.zephyr"

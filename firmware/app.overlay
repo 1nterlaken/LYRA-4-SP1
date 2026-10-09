@@ -1,0 +1,80 @@
+/*
+ * lyra4-sp1 application overlay.
+ *
+ * M1d adds the four faders, APPENDED after the battery so it keeps io-channel
+ * index 0 and sp1_batt.c never has to be renumbered.
+ *
+ * `reg` is chosen to equal the AIN number for the faders, which makes the mapping
+ * readable against the schematic. The io-channel INDEX is what C uses, and the two
+ * are deliberately different things -- see sp1_controls.c.
+ *
+ * Gain 1/6 + ADC_REF_INTERNAL matches the ladder channels in the board DTS, and
+ * that pairing is load-bearing: published millivolt threshold tables are only
+ * valid under the ADC configuration they were measured in. sp1-midi uses gain 1/4
+ * with VDD/4 -- never mix the two.
+ */
+
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
+
+&adc {
+	/* Battery voltage, P0.28 / AIN4, via an on-board divider of UNKNOWN ratio.
+	 * See sp1_batt.h for how to calibrate it without opening the device. */
+	channel@4 {
+		reg = <4>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 20)>;
+		zephyr,input-positive = <NRF_SAADC_AIN4>;
+		zephyr,resolution = <12>;
+	};
+};
+
+&adc {
+	/* Fader 1, P0.05 / AIN3 */
+	channel@3 {
+		reg = <3>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 20)>;
+		zephyr,input-positive = <NRF_SAADC_AIN3>;
+		zephyr,resolution = <12>;
+	};
+	/* Fader 2, P0.30 / AIN6 */
+	channel@6 {
+		reg = <6>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 20)>;
+		zephyr,input-positive = <NRF_SAADC_AIN6>;
+		zephyr,resolution = <12>;
+	};
+	/* Fader 3, P0.04 / AIN2 */
+	channel@2 {
+		reg = <2>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 20)>;
+		zephyr,input-positive = <NRF_SAADC_AIN2>;
+		zephyr,resolution = <12>;
+	};
+	/* Fader 4, P0.31 / AIN7 */
+	channel@7 {
+		reg = <7>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 20)>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;
+		zephyr,resolution = <12>;
+	};
+};
+
+&zephyr_user {
+	/* ORDER IS THE C-VISIBLE INDEX. Battery must stay index 0.
+	 *   0 battery   1 ladder-tracks   2 ladder-vol
+	 *   3 fader1    4 fader2          5 fader3       6 fader4
+	 * See the IO_* defines in sp1_controls.c -- they must match this order. */
+	io-channels = <&adc 4>,
+		      <&adc 0>, <&adc 1>,
+		      <&adc 3>, <&adc 6>, <&adc 2>, <&adc 7>;
+};
