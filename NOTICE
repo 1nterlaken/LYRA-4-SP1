@@ -1,0 +1,162 @@
+LYRA-4 — third-party code and attribution
+========================================
+
+LYRA-4 is unofficial community firmware for the Teenage Engineering SP-1.
+It is not affiliated with or endorsed by Teenage Engineering or Mutable
+Instruments. Nothing here is sold.
+
+The base firmware's own code, tools and documentation:
+  Copyright (c) 2026 Adara Barami | Worldwave — MIT, see LICENSE.
+
+Everything below is used under its own licence. The full text of each is in
+LICENSES/ (see LICENSES/README.md for which file covers what).
+
+SP-1 board definition and power/watchdog sequence
+  chattock/sp1-tape-looper — Copyright (c) 2026 chattock — MIT
+  https://github.com/chattock/sp1-tape-looper
+  Licence text: LICENSES/MIT-sp1-tape-looper.txt
+  Source of: boards/teenageengineering/stem_player/* (adapted), the
+  SYSTEM_OFF shutdown sequence, the all-8-channel watchdog feed, the
+  hardware-verified LED port/pin map, the "BIG FIVE" bootloader rules, and
+  (M2) the audio bring-up in firmware/src/sp1_audio.c: the codec-mastered
+  48 kHz clock topology, the bring-up order, the I2S stream configuration,
+  and the TAS2505 and CS42L42 register sequences, ported verbatim; and
+  (M3) the headphone auto-mute: CS42L42 jack sense (reg 0x1B77 bit 7),
+  3-read debounce, TAS2505 speaker driver on/off (page 1 reg 0x2D).
+
+SP-1 hardware documentation and pin map
+  timknapen/SP-1-dev — Copyright (c) 2026 Tim Knapen — MIT
+  https://github.com/timknapen/SP-1-dev
+  Licence text: LICENSES/MIT-SP-1-dev.txt
+  Source of: the SP-1 pinout in firmware/src/sp1_board.h, and the CS42L42
+  headphone-codec init sequence (via sp1-tape-looper) in sp1_audio.c.
+
+TAS2505 speaker amplifier configuration
+  Texas Instruments, TAS2505 Application Reference Guide (SLAU472C), sec. 5.1
+  The register sequence in sp1_audio.c follows it, via sp1-tape-looper.
+
+Zephyr BSP precedent
+  ericlewis/sp1-midi — Copyright (c) 2026 Eric Lewis — MIT
+  https://github.com/ericlewis/sp1-midi
+  Licence text: LICENSES/MIT-sp1-midi.txt
+  The original stem_player Zephyr board, which sp1-tape-looper's board
+  definition was reconstructed from.
+
+Synthesis engine (M3) and sequencer (M4) — vendored unmodified in
+third_party/eurorack/
+  pichenettes/eurorack — Mutable Instruments Plaits (plaits/dsp, resources)
+  pichenettes/stmlib — the DSP and utility subset Plaits needs
+  Copyright (c) Emilie Gillet — MIT
+  https://github.com/pichenettes/eurorack
+  https://github.com/pichenettes/stmlib
+  Licence text: LICENSES/MIT-Mutable-Instruments.txt, and each file's header.
+  Commits and the exact file list: third_party/eurorack/README.md.
+  firmware/src/sp1_plaits_ui.c adapts Plaits' pot catch-up algorithm
+  (plaits/pot_controller.h) and range-mode note mapping (plaits/ui.cc).
+  firmware/src/plaits_shim/plaits/user_data.h is ours: it replaces the
+  upstream header, which reads STM32 flash.
+  firmware/src/plaits_ovr/plaits/dsp/engine/additive_engine.{h,cc} are a
+  modified copy of Plaits' additive engine (Emilie Gillet, MIT): the same
+  spectrum code, with the partials summed by Clenshaw's algorithm to reduce
+  CPU. firmware/src/plaits_ovr/plaits/dsp/fx/ensemble.h and
+  .../oscillator/string_synth_oscillator.h are modified copies of Plaits'
+  ensemble and string-synth oscillator (Emilie Gillet, MIT), changed only to
+  skip work whose result is unused or constant. Other trims (string,
+  particle, modal) and two additions to plaits/dsp/voice.{h,cc} -- a
+  HARMONICS attenuverter and its internal-envelope routing, which upstream
+  Plaits does not have (M4a) -- are applied at build time to
+  generated copies of the upstream files, by firmware/CMakeLists.txt; the
+  vendored files themselves are not modified.
+  Marbles (M4): its random generators
+  (marbles/random, marbles/ramp, resources), vendored unmodified in
+  third_party/eurorack/marbles, same repository and licence.
+  firmware/src/sp1_marbles.cc adapts marbles/marbles.cc's generator code
+  and copies its y-divider table; firmware/src/sp1_marbles_scales.inc
+  copies the preset scales from marbles/settings.cc; sp1_marbles_ui.c
+  copies the loop-length table from marbles.cc and Plaits' pot catch-up.
+  The seventh scale slot (sp1_free_scale in sp1_marbles.cc) is ours, written
+  in Marbles' own Scale format. Three changes to Marbles are applied at build
+  time to generated copies, by firmware/CMakeLists.txt, leaving the vendored
+  files unmodified: marbles/random/t_generator.h gains a master-phase setter
+  so the clock can start on a beat (M4), marbles/random/x_y_generator.cc
+  has its per-group voltage-range switch redirected so the range can be
+  chosen per output channel (M4c), and marbles/random/t_generator.cc takes
+  its external-clock ramp from MIDI clock instead of its ramp extractor
+  (M5b) -- the policy behind those is ours, in firmware/src/sp1_marbles.cc.
+  MIDI (M5a): firmware/src/sp1_midi.cc ports the monophonic note handling of
+  Mutable Instruments Yarns from the same eurorack commit -- the mono branches
+  of yarns/part.cc (Part::InternalNoteOn/Off, its legato modes and hold
+  pedal) and yarns/voice.cc (Voice::NoteOn/Refresh: portamento, with Yarns'
+  portamento table in closed form, and pitch bend), and applies Plaits' pot
+  catch-up (plaits/pot_controller.h) to MIDI CCs. Nothing from yarns/ is
+  vendored. It uses stmlib/algorithms/note_stack.h, vendored unmodified from
+  the stmlib commit above. firmware/src/plaits_ovr/plaits/dsp/voice.{h,cc}
+  also expose the low-pass gate's state for MIDI (M5a).
+  Per upstream's guidelines the name "Mutable Instruments" is not used for
+  this derivative work other than as attribution.
+
+USB-MIDI 1.0 device class (M5a) — vendored unmodified in third_party/feldd/
+  bnjreece/feldd-sp1-firmware — Copyright (c) 2026 Benjamin Reece — MIT
+  https://github.com/bnjreece/feldd-sp1-firmware
+  Licence text: LICENSES/MIT-feldd.txt (it covers only feldd's own code; none
+  of feldd's third-party components are included here).
+  Source of: third_party/feldd/src/usb_midi1.{c,h} (the class, with feldd's
+  fixes for strict USB-MIDI hosts) and usb_rt_parse.{c,h} (the packet
+  validator), and its host test. third_party/feldd/patches/usb_midi1.patch is
+  ours: applied at build time to a copy, it hands received MIDI to LYRA-4
+  instead of feldd's clock router and MIDI-thru. Commit and file list:
+  third_party/feldd/README.md.
+
+USB audio out (M5c) — vendored unmodified in third_party/sp1-usb-audio/upstream/
+  ryanmgilmore/sp1-usb-audio — Copyright (c) 2026 Ryan Gilmore — Apache-2.0
+  https://github.com/ryanmgilmore/sp1-usb-audio
+  Licence text: LICENSES/Apache-2.0.txt (and upstream/LICENSE).
+  The whole repository at one commit; its own NOTICE
+  (third_party/sp1-usb-audio/upstream/NOTICE) is carried forward with it: it
+  credits Nordic Semiconductor ASA (Apache-2.0) for the modified driver in
+  module/nrf-usbd-isofast/, and chattock/sp1-tape-looper (MIT) for the SP-1
+  audio bring-up in sp1/fw/src/audio.c. LYRA-4 uses usb-audio/uacring.c,
+  MODIFIED by third_party/sp1-usb-audio/patches/uacring.patch (word copies in
+  place of memcpy/memset), applied at build time to a copy; the vendored file
+  is unchanged. tools/host-tests/uactest.c is derived from its
+  test/test_uacring.c and stays Apache-2.0. firmware/src/sp1_uac.{c,h} (the
+  USB Audio Class 1.0 function) follow its usb-audio/usb_audio.c for the fill
+  function and the stream start/stop, and are Apache-2.0. Commit and what each
+  part is for: third_party/sp1-usb-audio/README.md.
+
+Zephyr RTOS — Apache-2.0 — https://github.com/zephyrproject-rtos/zephyr
+  Licence text: LICENSES/Apache-2.0.txt
+  boards/teenageengineering/stem_player/Kconfig.defconfig, Kconfig.stem_player
+  and stem_player_defconfig carry "SPDX-License-Identifier: Apache-2.0",
+  inherited from Zephyr's board template; they remain Apache-2.0.
+  zephyr-patches/nordic-cmsis-system-core-clock.patch is a change to Zephyr
+  itself and is Apache-2.0 like the file it patches.
+  zephyr-patches/udc_nrf-fast-paths.patch (#32) changes Zephyr's nRF USB
+  driver and adds include/zephyr/drivers/usb/udc_nrf_fast.h; Apache-2.0 like
+  the driver. Its ISO IN fast path is Ryan Gilmore's, from
+  https://github.com/ryanmgilmore/sp1-usb-audio (module/nrf-usbd-isofast,
+  Apache-2.0, Copyright (c) 2026 Ryan Gilmore), ported to Zephyr v4.3.1 with
+  the two guards it relies on from nRF Connect SDK's later copy of the driver.
+  The bulk OUT fast path is ours, written the same way.
+  firmware/src/sp1_usbd.c (M5a) is derived from Zephyr's
+  samples/subsys/usb/common/sample_usbd_init.c, Copyright (c) 2023 Nordic
+  Semiconductor ASA, and is Apache-2.0: changed to set the base firmware's own USB
+  vendor/product IDs, full speed only, and to report bus events to MIDI.
+  Every firmware image links Zephyr (Apache-2.0) and the Zephyr modules pinned
+  in west.yml (cmsis, cmsis_6, hal_nordic), each under its own licence.
+  Firmware release archives will include LICENSES/, this NOTICE and a generated
+  bill of materials.
+
+Data inherited from upstream Plaits, redistributed as upstream publishes it
+  plaits/dsp/speech/lpc_speech_synth_words.cc describes its word data as "LPC10
+  encoded words extracted from various TI ROMs". plaits/resources.cc contains
+  the 6-op FM patch banks (syx_bank_0-2); these are linked into the firmware
+  even though the 6-op engines are disabled. Upstream publishes both under the
+  MIT licence and states no further provenance.
+
+"Teenage Engineering", "SP-1" and "Stem Player" are used only to identify the
+hardware this firmware runs on. "Mutable Instruments", "Plaits" and "Marbles"
+are used only as attribution.
+
+Nothing in this repository redistributes Teenage Engineering's stock firmware
+or bootloader.
